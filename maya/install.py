@@ -38,10 +38,12 @@ def run() -> None:
     _add_to_user_setup()
 
     import sys
+
     if PIPELINE_DIR not in sys.path:
         sys.path.append(PIPELINE_DIR)
 
     import pipeline
+
     pipeline.setup_shelf()
 
     cmds.confirmDialog(

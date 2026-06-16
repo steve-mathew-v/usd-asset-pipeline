@@ -19,7 +19,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements-server.txt
-          pip install pytest httpx
+          pip install pytest httpx ruff
+
+      - name: Lint (ruff / PEP 8)
+        run: ruff check .
 
       - name: Run tests
         run: pytest -q

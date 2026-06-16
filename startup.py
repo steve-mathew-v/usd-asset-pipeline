@@ -89,7 +89,9 @@ def start_server() -> None:
 def menu() -> None:
     """Main menu loop."""
     while True:
-        print("\n1. start server\n2. create user\n3. list users\n4. delete user\n5. exit")
+        print(
+            "\n1. start server\n2. create user\n3. list users\n4. delete user\n5. exit"
+        )
         choice = input("choice: ").strip()
 
         if choice == "1":

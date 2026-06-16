@@ -11,10 +11,25 @@ from requests.auth import HTTPDigestAuth
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QFormLayout, QFrame, QGridLayout,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
-    QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QTabWidget,
-    QVBoxLayout, QWidget,
+    QApplication,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 load_dotenv()
@@ -43,7 +58,15 @@ class ServerThread(QThread):
         global server_process
         try:
             server_process = subprocess.Popen(
-                ["uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+                [
+                    "uvicorn",
+                    "main:app",
+                    "--reload",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    "8000",
+                ],
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
             self.done.emit()
@@ -107,8 +130,10 @@ class LoginWindow(QDialog):
 
     def try_login(self) -> None:
         """Check the entered credentials against the root account."""
-        if (self.username_input.text().strip() == ROOT_USER
-                and self.password_input.text() == ROOT_PASS):
+        if (
+            self.username_input.text().strip() == ROOT_USER
+            and self.password_input.text() == ROOT_PASS
+        ):
             self.accept()
         else:
             self.message_label.setText("Invalid credentials")
@@ -194,7 +219,8 @@ class ServerTab(QWidget):
         if server_process:
             subprocess.call(
                 ["taskkill", "/F", "/T", "/PID", str(server_process.pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             server_process = None
         self.status_dot.setStyleSheet("color: red; font-size: 18px;")
@@ -263,7 +289,9 @@ class UsersTab(QWidget):
         role = self.role_combo.currentText()
 
         if not username or not password:
-            QMessageBox.warning(self, "Missing fields", "Fill in username and password.")
+            QMessageBox.warning(
+                self, "Missing fields", "Fill in username and password."
+            )
             return
 
         try:
@@ -386,7 +414,9 @@ class AssetCard(QFrame):
                 self.status_label.setStyleSheet(
                     f"color: {'green' if self.ready else 'red'}; font-size: 10px;"
                 )
-                self.ready_button.setText("Unmark Ready" if self.ready else "Mark Ready")
+                self.ready_button.setText(
+                    "Unmark Ready" if self.ready else "Mark Ready"
+                )
             else:
                 QMessageBox.critical(self, "Error", str(response.json()))
         except Exception as exc:
@@ -395,7 +425,9 @@ class AssetCard(QFrame):
     def delete_asset(self) -> None:
         """Delete the asset from the server after confirmation."""
         confirm = QMessageBox.question(
-            self, "Delete", f"Delete '{self.name}'?",
+            self,
+            "Delete",
+            f"Delete '{self.name}'?",
             QMessageBox.Yes | QMessageBox.No,
         )
         if confirm != QMessageBox.Yes:
@@ -405,7 +437,9 @@ class AssetCard(QFrame):
             if response.status_code == 200:
                 self.deleted.emit(self.name)
             else:
-                QMessageBox.critical(self, "Error", f"Failed to delete: {response.json()}")
+                QMessageBox.critical(
+                    self, "Error", f"Failed to delete: {response.json()}"
+                )
         except Exception as exc:
             QMessageBox.critical(self, "Error", str(exc))
 

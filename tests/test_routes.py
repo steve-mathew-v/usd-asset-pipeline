@@ -10,19 +10,25 @@ def test_health_check(client):
 
 
 def test_login_with_root_credentials(client):
-    response = client.post("/api/auth/login", json={
-        "username": os.environ["ROOT_USER"],
-        "password": os.environ["ROOT_PASS"],
-    })
+    response = client.post(
+        "/api/auth/login",
+        json={
+            "username": os.environ["ROOT_USER"],
+            "password": os.environ["ROOT_PASS"],
+        },
+    )
     assert response.status_code == 200
     assert response.json() == {"success": True}
 
 
 def test_login_with_wrong_credentials(client):
-    response = client.post("/api/auth/login", json={
-        "username": "nobody",
-        "password": "wrong",
-    })
+    response = client.post(
+        "/api/auth/login",
+        json={
+            "username": "nobody",
+            "password": "wrong",
+        },
+    )
     assert response.status_code == 401
 
 
@@ -53,7 +59,9 @@ def test_upload_and_list_asset(client, fake_collection, tmp_path, monkeypatch):
     assert assets[0]["ready"] is False
 
 
-def test_reupload_replaces_existing_asset(client, fake_collection, tmp_path, monkeypatch):
+def test_reupload_replaces_existing_asset(
+    client, fake_collection, tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     os.makedirs("uploads", exist_ok=True)
 
@@ -106,7 +114,12 @@ def test_delete_unknown_asset(client):
 
 def test_delete_asset_removes_entry(client, fake_collection):
     fake_collection.documents.append(
-        {"_id": "id0", "name": "cube", "file_path": "uploads/missing.obj", "ready": False}
+        {
+            "_id": "id0",
+            "name": "cube",
+            "file_path": "uploads/missing.obj",
+            "ready": False,
+        }
     )
 
     response = client.delete("/api/assets/cube")

@@ -20,4 +20,17 @@ dependencies = [
 dev = [
     "pytest",
     "httpx",
+    "ruff",
 ]
+
+[tool.ruff]
+# 88 is the Black/ruff standard; PEP 8 permits raising the line limit.
+line-length = 88
+
+[tool.ruff.lint]
+# E/W = pycodestyle (PEP 8), F = pyflakes (unused imports, undefined names)
+select = ["E", "W", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# build_deck.py holds long slide-text strings that can't be wrapped cleanly
+"docs/build_deck.py" = ["E501"]

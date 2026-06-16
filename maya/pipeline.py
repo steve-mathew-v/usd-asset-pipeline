@@ -17,8 +17,14 @@ import maya.cmds as cmds
 import maya.mel as mel
 
 from PySide6.QtWidgets import (
-    QDialog, QFormLayout, QInputDialog, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QVBoxLayout,
+    QDialog,
+    QFormLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
 )
 
 # Server address. Override with the PIPELINE_SERVER environment variable, or
@@ -79,7 +85,9 @@ class LoginDialog(QDialog):
             body = json.dumps({"username": username, "password": password}).encode()
             connection = _connect()
             connection.request(
-                "POST", "/api/auth/login", body=body,
+                "POST",
+                "/api/auth/login",
+                body=body,
                 headers={"Content-Type": "application/json"},
             )
             response = connection.getresponse()
@@ -121,8 +129,9 @@ def _ask_asset_name(title: str) -> Optional[str]:
     return name
 
 
-def _multipart_upload(filepath: str, source_tool: str = "Maya",
-                      ready: bool = False) -> tuple[int, dict]:
+def _multipart_upload(
+    filepath: str, source_tool: str = "Maya", ready: bool = False
+) -> tuple[int, dict]:
     """Upload a .obj file to the server as multipart form data.
 
     Built by hand because Maya's Python does not ship with requests.
@@ -134,19 +143,30 @@ def _multipart_upload(filepath: str, source_tool: str = "Maya",
         file_data = obj_file.read()
 
     body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-        f"Content-Type: application/octet-stream\r\n\r\n"
-    ).encode() + file_data + f"\r\n--{boundary}--\r\n".encode()
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+            f"Content-Type: application/octet-stream\r\n\r\n"
+        ).encode()
+        + file_data
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
 
     uploader = _current_user or "unknown"
-    url = (f"/api/assets/upload?source_tool={source_tool}"
-           f"&ready={str(ready).lower()}&uploaded_by={uploader}")
+    url = (
+        f"/api/assets/upload?source_tool={source_tool}"
+        f"&ready={str(ready).lower()}&uploaded_by={uploader}"
+    )
     connection = _connect()
-    connection.request("POST", url, body=body, headers={
-        "Content-Type": f"multipart/form-data; boundary={boundary}",
-        "Content-Length": str(len(body)),
-    })
+    connection.request(
+        "POST",
+        url,
+        body=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(body)),
+        },
+    )
     response = connection.getresponse()
     data = json.loads(response.read())
     connection.close()
@@ -160,17 +180,26 @@ def _upload_thumbnail(name: str, view: str, filepath: str) -> None:
         image_data = image_file.read()
 
     body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="file"; '
-        f'filename="{os.path.basename(filepath)}"\r\n'
-        f"Content-Type: image/jpeg\r\n\r\n"
-    ).encode() + image_data + f"\r\n--{boundary}--\r\n".encode()
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; '
+            f'filename="{os.path.basename(filepath)}"\r\n'
+            f"Content-Type: image/jpeg\r\n\r\n"
+        ).encode()
+        + image_data
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
 
     connection = _connect()
-    connection.request("POST", f"/api/assets/{name}/thumbnail/{view}", body=body, headers={
-        "Content-Type": f"multipart/form-data; boundary={boundary}",
-        "Content-Length": str(len(body)),
-    })
+    connection.request(
+        "POST",
+        f"/api/assets/{name}/thumbnail/{view}",
+        body=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(body)),
+        },
+    )
     response = connection.getresponse()
     connection.close()
     print(f"{view} thumb {'ok' if response.status == 200 else 'failed'}")
@@ -193,7 +222,7 @@ def _take_thumbnails(name: str, nodes: list[str]) -> None:
     for view in ("front", "top"):
         cmds.select(nodes)
         cmds.setFocus(panel)
-        mel.eval(f'lookThru {panel} {view}')
+        mel.eval(f"lookThru {panel} {view}")
         cmds.viewFit(fitFactor=0.9)
         cmds.refresh(force=True)
 
@@ -212,7 +241,7 @@ def _take_thumbnails(name: str, nodes: list[str]) -> None:
         _upload_thumbnail(name, view, output_path)
 
     cmds.setFocus(panel)
-    mel.eval(f'lookThru {panel} persp')
+    mel.eval(f"lookThru {panel} persp")
 
 
 def upload() -> None:
@@ -235,8 +264,14 @@ def upload() -> None:
 
     name = os.path.basename(path).replace(".obj", "")
     nodes_before = set(cmds.ls(dag=True, long=True))
-    cmds.file(path, i=True, type="OBJ", ignoreVersion=True,
-              mergeNamespacesOnClash=True, namespace=":")
+    cmds.file(
+        path,
+        i=True,
+        type="OBJ",
+        ignoreVersion=True,
+        mergeNamespacesOnClash=True,
+        namespace=":",
+    )
     new_nodes = list(set(cmds.ls(dag=True, long=True)) - nodes_before)
 
     if new_nodes:
@@ -257,8 +292,9 @@ def get_ready() -> list[dict]:
     if not assets:
         QMessageBox.information(None, "Pipeline", "No assets ready")
         return []
-    message = (f"{len(assets)} asset(s) ready:\n\n"
-               + "\n".join(f"  - {asset['name']}" for asset in assets))
+    message = f"{len(assets)} asset(s) ready:\n\n" + "\n".join(
+        f"  - {asset['name']}" for asset in assets
+    )
     QMessageBox.information(None, "Ready Assets", message)
     return assets
 
@@ -267,8 +303,14 @@ def import_asset(name: str) -> None:
     """Download one asset from the server and import it into the scene."""
     temp_path = os.path.join(tempfile.gettempdir(), f"{name}.obj")
     urllib.request.urlretrieve(f"{SERVER}/api/assets/download/{name}", temp_path)
-    cmds.file(temp_path, i=True, type="OBJ", ignoreVersion=True,
-              mergeNamespacesOnClash=True, namespace=":")
+    cmds.file(
+        temp_path,
+        i=True,
+        type="OBJ",
+        ignoreVersion=True,
+        mergeNamespacesOnClash=True,
+        namespace=":",
+    )
     print(f"imported {name}")
 
 
@@ -324,24 +366,49 @@ def setup_shelf() -> None:
     pipeline_dir = os.path.dirname(os.path.abspath(__file__)).replace("\\", "/")
     base = f"import sys\nsys.path.append(r'{pipeline_dir}')\nimport pipeline\n"
 
-    cmds.shelfButton(label="UPL", annotation="Upload .obj to pipeline",
-                     imageOverlayLabel="UPL", image="commandButton.png",
-                     parent=shelf, command=base + "pipeline.upload()")
+    cmds.shelfButton(
+        label="UPL",
+        annotation="Upload .obj to pipeline",
+        imageOverlayLabel="UPL",
+        image="commandButton.png",
+        parent=shelf,
+        command=base + "pipeline.upload()",
+    )
 
-    cmds.shelfButton(label="IMP", annotation="Import all ready assets",
-                     imageOverlayLabel="IMP", image="commandButton.png",
-                     parent=shelf, command=base + "pipeline.import_all_ready()")
+    cmds.shelfButton(
+        label="IMP",
+        annotation="Import all ready assets",
+        imageOverlayLabel="IMP",
+        image="commandButton.png",
+        parent=shelf,
+        command=base + "pipeline.import_all_ready()",
+    )
 
-    cmds.shelfButton(label="CHK", annotation="Check whats ready on server",
-                     imageOverlayLabel="CHK", image="commandButton.png",
-                     parent=shelf, command=base + "pipeline.get_ready()")
+    cmds.shelfButton(
+        label="CHK",
+        annotation="Check whats ready on server",
+        imageOverlayLabel="CHK",
+        image="commandButton.png",
+        parent=shelf,
+        command=base + "pipeline.get_ready()",
+    )
 
-    cmds.shelfButton(label="RDY", annotation="Mark an asset as ready",
-                     imageOverlayLabel="RDY", image="commandButton.png",
-                     parent=shelf, command=base + "pipeline.mark_ready()")
+    cmds.shelfButton(
+        label="RDY",
+        annotation="Mark an asset as ready",
+        imageOverlayLabel="RDY",
+        image="commandButton.png",
+        parent=shelf,
+        command=base + "pipeline.mark_ready()",
+    )
 
-    cmds.shelfButton(label="URDY", annotation="Unmark an asset as ready",
-                     imageOverlayLabel="URDY", image="commandButton.png",
-                     parent=shelf, command=base + "pipeline.unmark_ready()")
+    cmds.shelfButton(
+        label="URDY",
+        annotation="Unmark an asset as ready",
+        imageOverlayLabel="URDY",
+        image="commandButton.png",
+        parent=shelf,
+        command=base + "pipeline.unmark_ready()",
+    )
 
     print("shelf ready")
