@@ -80,7 +80,7 @@ def delete_user() -> None:
 def start_server() -> None:
     """Launch uvicorn in its own console window."""
     subprocess.Popen(
-        ["uvicorn", "main:app", "--reload", "--port", "8000"],
+        ["uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
         creationflags=subprocess.CREATE_NEW_CONSOLE,
     )
     print("server up at http://localhost:8000")

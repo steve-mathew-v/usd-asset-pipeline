@@ -96,6 +96,21 @@ docker compose up --build
 
 This builds the image, starts the server on `http://localhost:8000`, and keeps the `uploads/` and `thumbnails/` folders on the host so files survive restarts. Only the server is containerised — the GUI and Maya tools run on the artist's own machine.
 
+## Letting other people connect
+
+By default everything points at `http://localhost:8000`, which only works on the same machine as the server. To let someone on another machine connect, point their client at the server's address with the `PIPELINE_SERVER` environment variable (or by editing the `SERVER` line at the top of `maya/pipeline.py`). Include the scheme and no trailing slash:
+
+```
+PIPELINE_SERVER=https://my-pipeline.onrender.com
+```
+
+There are two common ways to make the server reachable:
+
+- **Same network (LAN):** the server already binds to `0.0.0.0`, so others on the same Wi-Fi can use `http://<your-local-ip>:8000` (allow port 8000 through your firewall).
+- **Over the internet:** either run a tunnel from your machine (e.g. `cloudflared tunnel --url http://localhost:8000`, which prints a public `https://…trycloudflare.com` URL) or deploy the server to a cloud host. A [render.com](https://render.com) blueprint is included (`render.yaml`) — it builds from the Dockerfile; set `MONGO_URI`, `DB_NAME`, `ROOT_USER`, `ROOT_PASS` in the Render dashboard. When deploying to Atlas, allow access from anywhere (`0.0.0.0/0`) under Network Access, since cloud hosts use dynamic IPs.
+
+Either way, create the person an account (Users tab or `startup.py`), give them the server URL, and they log in with those credentials.
+
 ## Maya setup
 
 The Maya tools use the modules that ship with Maya 2025 (PySide6 included), so nothing extra needs to be installed into Maya.

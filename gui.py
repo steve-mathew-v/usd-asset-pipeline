@@ -26,7 +26,9 @@ ROOT_USER = os.getenv("ROOT_USER")
 ROOT_PASS = os.getenv("ROOT_PASS")
 
 ATLAS_URL = f"https://cloud.mongodb.com/api/atlas/v1.0/groups/{ATLAS_PROJECT_ID}"
-SERVER_URL = "http://localhost:8000"
+# Address the GUI talks to. Defaults to the local server; override with
+# PIPELINE_SERVER to point the Assets tab at a remote/cloud server.
+SERVER_URL = os.environ.get("PIPELINE_SERVER", "http://localhost:8000").rstrip("/")
 
 server_process = None
 
@@ -41,7 +43,7 @@ class ServerThread(QThread):
         global server_process
         try:
             server_process = subprocess.Popen(
-                ["uvicorn", "main:app", "--reload", "--port", "8000"],
+                ["uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
             self.done.emit()

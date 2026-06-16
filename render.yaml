@@ -1,0 +1,20 @@
+# Render.com deployment blueprint.
+# Deploy: push to GitHub, then on render.com "New > Blueprint" and pick this repo.
+# Set the secret env vars (MONGO_URI, DB_NAME, ROOT_USER, ROOT_PASS) in the
+# Render dashboard - they are intentionally not stored in this file.
+services:
+  - type: web
+    name: usd-asset-pipeline
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: ROOT_USER
+        sync: false
+      - key: ROOT_PASS
+        sync: false

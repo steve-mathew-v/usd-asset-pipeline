@@ -11,6 +11,7 @@ import os
 import tempfile
 import urllib.request
 from typing import Optional
+from urllib.parse import urlparse
 
 import maya.cmds as cmds
 import maya.mel as mel
@@ -20,10 +21,24 @@ from PySide6.QtWidgets import (
     QPushButton, QVBoxLayout,
 )
 
-SERVER = "localhost:8000"
+# Server address. Override with the PIPELINE_SERVER environment variable, or
+# edit this line to point at your server. Include the scheme (http/https) and
+# no trailing slash. Examples:
+#   "http://localhost:8000"             - running on your own machine
+#   "https://abc123.trycloudflare.com"  - a Cloudflare tunnel
+#   "https://my-pipeline.onrender.com"  - a cloud deployment
+SERVER = os.environ.get("PIPELINE_SERVER", "http://localhost:8000").rstrip("/")
 
 _logged_in = False
 _current_user: Optional[str] = None
+
+
+def _connect():
+    """Open an HTTP or HTTPS connection to the server based on SERVER's scheme."""
+    parsed = urlparse(SERVER)
+    if parsed.scheme == "https":
+        return http.client.HTTPSConnection(parsed.netloc)
+    return http.client.HTTPConnection(parsed.netloc)
 
 
 class LoginDialog(QDialog):
@@ -62,7 +77,7 @@ class LoginDialog(QDialog):
 
         try:
             body = json.dumps({"username": username, "password": password}).encode()
-            connection = http.client.HTTPConnection(SERVER)
+            connection = _connect()
             connection.request(
                 "POST", "/api/auth/login", body=body,
                 headers={"Content-Type": "application/json"},
@@ -90,7 +105,7 @@ def _check_login() -> bool:
 def _server_up() -> bool:
     """Ping the server, with a popup if it is not reachable."""
     try:
-        urllib.request.urlopen(f"http://{SERVER}/", timeout=2)
+        urllib.request.urlopen(f"{SERVER}/", timeout=2)
         return True
     except Exception:
         QMessageBox.critical(None, "Error", "Server is not running")
@@ -127,7 +142,7 @@ def _multipart_upload(filepath: str, source_tool: str = "Maya",
     uploader = _current_user or "unknown"
     url = (f"/api/assets/upload?source_tool={source_tool}"
            f"&ready={str(ready).lower()}&uploaded_by={uploader}")
-    connection = http.client.HTTPConnection(SERVER)
+    connection = _connect()
     connection.request("POST", url, body=body, headers={
         "Content-Type": f"multipart/form-data; boundary={boundary}",
         "Content-Length": str(len(body)),
@@ -151,7 +166,7 @@ def _upload_thumbnail(name: str, view: str, filepath: str) -> None:
         f"Content-Type: image/jpeg\r\n\r\n"
     ).encode() + image_data + f"\r\n--{boundary}--\r\n".encode()
 
-    connection = http.client.HTTPConnection(SERVER)
+    connection = _connect()
     connection.request("POST", f"/api/assets/{name}/thumbnail/{view}", body=body, headers={
         "Content-Type": f"multipart/form-data; boundary={boundary}",
         "Content-Length": str(len(body)),
@@ -238,7 +253,7 @@ def get_ready() -> list[dict]:
     """Show which assets are marked ready on the server."""
     if not _server_up() or not _check_login():
         return []
-    assets = json.loads(urllib.request.urlopen(f"http://{SERVER}/api/assets/ready").read())
+    assets = json.loads(urllib.request.urlopen(f"{SERVER}/api/assets/ready").read())
     if not assets:
         QMessageBox.information(None, "Pipeline", "No assets ready")
         return []
@@ -251,7 +266,7 @@ def get_ready() -> list[dict]:
 def import_asset(name: str) -> None:
     """Download one asset from the server and import it into the scene."""
     temp_path = os.path.join(tempfile.gettempdir(), f"{name}.obj")
-    urllib.request.urlretrieve(f"http://{SERVER}/api/assets/download/{name}", temp_path)
+    urllib.request.urlretrieve(f"{SERVER}/api/assets/download/{name}", temp_path)
     cmds.file(temp_path, i=True, type="OBJ", ignoreVersion=True,
               mergeNamespacesOnClash=True, namespace=":")
     print(f"imported {name}")
@@ -279,7 +294,7 @@ def _set_ready_state(endpoint: str, title: str, done_message: str) -> None:
     asset_name = _ask_asset_name(title)
     if not asset_name:
         return
-    connection = http.client.HTTPConnection(SERVER)
+    connection = _connect()
     connection.request("PATCH", f"/api/assets/{asset_name}/{endpoint}")
     response = connection.getresponse()
     connection.close()
