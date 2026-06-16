@@ -1,0 +1,10 @@
+# Server-only dependencies (no GUI / Maya client packages).
+# Used by the Docker image and CI so they stay lean.
+fastapi
+uvicorn
+motor==3.3.2
+pymongo==4.6.3
+pydantic
+python-dotenv
+aiofiles
+python-multipart

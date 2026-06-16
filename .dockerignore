@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+tests/
+maya/
+docs/
+gui.py
+startup.py
+.env
+uploads/
+thumbnails/

@@ -1,0 +1,14 @@
+# Brings up the pipeline server with one command: docker compose up
+services:
+  server:
+    build: .
+    ports:
+      - "8000:8000"
+    # reads MONGO_URI, DB_NAME, ROOT_USER, ROOT_PASS from the .env file
+    env_file:
+      - .env
+    # keep uploaded files and thumbnails on the host so they survive restarts
+    volumes:
+      - ./uploads:/app/uploads
+      - ./thumbnails:/app/thumbnails
+    restart: unless-stopped
