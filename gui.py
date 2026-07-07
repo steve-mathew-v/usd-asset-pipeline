@@ -480,7 +480,7 @@ class AssetsTab(QWidget):
                 item.widget().deleteLater()
 
         try:
-            response = requests.get(f"{SERVER_URL}/api/assets", timeout=3)
+            response = requests.get(f"{SERVER_URL}/api/assets", timeout=10)
             if response.status_code != 200:
                 return
             assets = response.json()
@@ -507,11 +507,19 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("OBJ Pipeline")
         self.setMinimumSize(560, 480)
 
+        self.assets_tab = AssetsTab()
         tabs = QTabWidget()
         tabs.addTab(ServerTab(), "Server")
         tabs.addTab(UsersTab(), "Users")
-        tabs.addTab(AssetsTab(), "Assets")
+        self.assets_index = tabs.addTab(self.assets_tab, "Assets")
+        # reload the asset list whenever the user opens the Assets tab, so it
+        # reflects the current server state instead of a stale earlier one
+        tabs.currentChanged.connect(self._on_tab_changed)
         self.setCentralWidget(tabs)
+
+    def _on_tab_changed(self, index: int) -> None:
+        if index == self.assets_index:
+            self.assets_tab.load_assets()
 
 
 if __name__ == "__main__":
