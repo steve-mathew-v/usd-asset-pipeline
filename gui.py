@@ -344,7 +344,11 @@ class AssetCard(QFrame):
     def __init__(self, asset: dict) -> None:
         super().__init__()
         self.name = asset["name"]
-        self.ready = asset.get("ready", False)
+        self.approved_version = asset.get("approved_version")
+        self.approved = self.approved_version is not None
+        self.latest_version = asset.get("latest_version", 1)
+        versions = asset.get("versions", [])
+        self.uploader = versions[-1]["uploaded_by"] if versions else "unknown"
         self.setFrameShape(QFrame.Box)
         self.setFixedWidth(260)
 
@@ -383,20 +387,30 @@ class AssetCard(QFrame):
         tool_label.setStyleSheet("color: grey; font-size: 10px;")
         info_row.addWidget(tool_label)
         info_row.addStretch()
-        self.status_label = QLabel("ready" if self.ready else "not ready")
+        self.status_label = QLabel(
+            f"approved v{self.approved_version}" if self.approved else "not approved"
+        )
         self.status_label.setStyleSheet(
-            f"color: {'green' if self.ready else 'red'}; font-size: 10px;"
+            f"color: {'green' if self.approved else 'red'}; font-size: 10px;"
         )
         info_row.addWidget(self.status_label)
         layout.addLayout(info_row)
 
-        uploader_label = QLabel(f"uploaded by: {asset.get('uploaded_by') or 'unknown'}")
+        version_label = QLabel(
+            f"latest: v{self.latest_version}  ·  {len(versions)} version(s)"
+        )
+        version_label.setStyleSheet("color: grey; font-size: 10px;")
+        layout.addWidget(version_label)
+
+        uploader_label = QLabel(f"last upload by: {self.uploader}")
         uploader_label.setStyleSheet("color: grey; font-size: 10px;")
         layout.addWidget(uploader_label)
 
-        self.ready_button = QPushButton("Unmark Ready" if self.ready else "Mark Ready")
+        self.ready_button = QPushButton(
+            "Unapprove" if self.approved else "Approve latest"
+        )
         self.ready_button.setFixedHeight(28)
-        self.ready_button.clicked.connect(self.toggle_ready)
+        self.ready_button.clicked.connect(self.toggle_approve)
         layout.addWidget(self.ready_button)
 
         delete_button = QPushButton("Delete")
@@ -405,19 +419,25 @@ class AssetCard(QFrame):
         delete_button.clicked.connect(self.delete_asset)
         layout.addWidget(delete_button)
 
-    def toggle_ready(self) -> None:
-        """Flip the asset's ready state on the server and update the card."""
-        endpoint = "unready" if self.ready else "ready"
+    def toggle_approve(self) -> None:
+        """Approve the latest version or unapprove, and update the card."""
+        endpoint = "unapprove" if self.approved else "approve"
         try:
             response = requests.patch(f"{SERVER_URL}/api/assets/{self.name}/{endpoint}")
             if response.status_code == 200:
-                self.ready = not self.ready
-                self.status_label.setText("ready" if self.ready else "not ready")
+                self.approved = not self.approved
+                if self.approved:
+                    self.approved_version = self.latest_version
+                self.status_label.setText(
+                    f"approved v{self.approved_version}"
+                    if self.approved
+                    else "not approved"
+                )
                 self.status_label.setStyleSheet(
-                    f"color: {'green' if self.ready else 'red'}; font-size: 10px;"
+                    f"color: {'green' if self.approved else 'red'}; font-size: 10px;"
                 )
                 self.ready_button.setText(
-                    "Unmark Ready" if self.ready else "Mark Ready"
+                    "Unapprove" if self.approved else "Approve latest"
                 )
             else:
                 QMessageBox.critical(self, "Error", str(response.json()))

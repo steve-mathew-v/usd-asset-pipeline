@@ -1,8 +1,8 @@
-# OBJ Pipeline
+# USD Asset Pipeline
 
 ![CI](https://github.com/steve-mathew-v/usd-asset-pipeline/actions/workflows/ci.yml/badge.svg)
 
-A simple asset pipeline for sharing .obj files between DCC tools using a central server and MongoDB Atlas.
+A pipeline for sharing versioned **USD** assets between DCC tools (Maya and Houdini) through a central server, with files and version history stored in MongoDB Atlas. Every publish is kept as a new version; a chosen version is approved for others to import.
 
 ## What it does
 
@@ -124,17 +124,31 @@ import install
 install.run()
 ```
 
-This adds the pipeline to your `userSetup.py` and creates an **OBJPipeline** shelf with these buttons:
+This creates an **OBJPipeline** shelf with these buttons:
 
 | Button | What it does |
 |--------|-------------|
-| UPL | Upload a .obj file to the server |
-| IMP | Import all ready assets into the scene |
-| CHK | Check what assets are ready |
-| RDY | Mark an asset as ready |
-| URDY | Unmark an asset |
+| PUB | Publish the current selection as USD (a new version) |
+| IMP | Import all approved assets into the scene |
+| CHK | Check what's approved on the server |
+| VER | Show an asset's version history / import a specific version |
+| OK | Approve the latest version of an asset |
+| NO | Unapprove an asset |
 
 The first time you click any button you'll be asked to log in. Any Atlas database user (created from the Users tab or `startup.py`) can log in.
+
+## Houdini setup
+
+The Houdini tools use `hou` and Houdini's built-in dialogs, so nothing extra needs installing. Open Houdini's **Python Source Editor** (Windows > Python Source Editor) and run the installer once:
+
+```python
+import sys
+sys.path.append(r"path/to/obj-pipeline/houdini")
+import install
+install.run()
+```
+
+This creates an **OBJ Pipeline** shelf with the same PUB / IMP / CHK / VER / OK / NO tools. Select geometry and click **PUB** to publish it as USD; **IMP** brings approved assets in through a File SOP.
 
 ## Managing users
 
@@ -144,13 +158,17 @@ Use the **Users** tab in the GUI, or run the terminal version:
 uv run startup.py
 ```
 
+## Versioning
+
+Re-publishing an asset with the same name does **not** overwrite it — it creates the next version (v1, v2, v3…). The full history is kept. You then **approve** a specific version (the latest by default, or a pinned one), and that's what other artists import. This gives real version tracking and lets you roll back or pin an exact version.
+
 ## Asset thumbnails
 
-When you upload a .obj from Maya, the pipeline automatically takes a front and top viewport screenshot and uploads them to the server. These show up in the GUI's **Assets** tab.
+When you publish from Maya, the pipeline automatically takes a front and top viewport screenshot of that version and uploads them. They show up in the GUI's **Assets** tab. (Houdini publishing skips thumbnails for now.)
 
 ## Where files are stored
 
-Both the .obj files and their thumbnails are stored **inside MongoDB using GridFS**, not on the server's local disk. This keeps the server stateless, so it can be deployed to a cloud host (where the disk is wiped on every restart) without losing any assets. The trade-off is the database's storage limit (512 MB on the Atlas free tier), which suits modest assets.
+USD files and thumbnails are stored **inside MongoDB using GridFS**, not on the server's local disk. This keeps the server stateless, so it can be deployed to a cloud host (where the disk is wiped on every restart) without losing any assets. The trade-off is the database's storage limit (512 MB on the Atlas free tier), which suits modest assets.
 
 ## Project structure
 
@@ -159,17 +177,21 @@ obj-pipeline/
 ├── main.py            # FastAPI app entry point
 ├── routes.py          # API endpoints
 ├── database.py        # MongoDB connection
-├── models.py          # Asset data model
+├── models.py          # Versioned asset data model
+├── storage.py         # File storage in MongoDB GridFS
+├── database.py        # MongoDB connection (files + records both live here)
 ├── gui.py             # Management GUI
 ├── startup.py         # Terminal management script
 ├── pyproject.toml     # Project metadata and dependencies
 ├── Dockerfile         # Server container image
 ├── docker-compose.yml # One-command server startup
+├── render.yaml        # Render.com cloud deploy blueprint
 ├── .github/workflows/ # CI: runs the tests on every push
 ├── maya/
 │   ├── install.py     # One-time Maya installer
 │   └── pipeline.py    # Maya shelf and pipeline tools
-├── tests/             # pytest suite (runs offline, no Atlas needed)
-├── storage.py         # File storage in MongoDB GridFS
-└── database.py        # MongoDB connection (files + records both live here)
+├── houdini/
+│   ├── install.py     # One-time Houdini installer
+│   └── pipeline.py    # Houdini shelf and pipeline tools
+└── tests/             # pytest suite (runs offline, no Atlas needed)
 ```

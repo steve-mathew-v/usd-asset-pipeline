@@ -1,8 +1,8 @@
-"""Maya-side tools for the OBJ pipeline.
+"""Maya-side tools for the USD asset pipeline.
 
-Gives artists shelf buttons to upload .obj files to the central server,
-check and import ready assets, and mark assets as ready. Dialogs use
-PySide6 (which ships with Maya 2025).
+Artists publish the current selection as a USD asset (each publish is a new
+version), approve a version for others, and import approved or pinned
+versions. Talks to the central server over HTTP; dialogs use PySide6.
 """
 
 import http.client
@@ -28,11 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 # Server address. Override with the PIPELINE_SERVER environment variable, or
-# edit this line to point at your server. Include the scheme (http/https) and
-# no trailing slash. Examples:
-#   "http://localhost:8000"             - running on your own machine
-#   "https://abc123.trycloudflare.com"  - a Cloudflare tunnel
-#   "https://my-pipeline.onrender.com"  - a cloud deployment
+# edit this line. Include the scheme (http/https) and no trailing slash.
 SERVER = os.environ.get(
     "PIPELINE_SERVER", "https://usd-asset-pipeline.onrender.com"
 ).rstrip("/")
@@ -42,7 +38,7 @@ _current_user: Optional[str] = None
 
 
 def _connect():
-    """Open an HTTP or HTTPS connection to the server based on SERVER's scheme."""
+    """Open an HTTP or HTTPS connection based on SERVER's scheme."""
     parsed = urlparse(SERVER)
     if parsed.scheme == "https":
         return http.client.HTTPSConnection(parsed.netloc)
@@ -58,7 +54,6 @@ class LoginDialog(QDialog):
         self.setMinimumWidth(300)
 
         layout = QVBoxLayout(self)
-
         form = QFormLayout()
         self.username_input = QLineEdit()
         self.password_input = QLineEdit()
@@ -79,10 +74,8 @@ class LoginDialog(QDialog):
     def try_login(self) -> None:
         """Send the entered credentials to the server's login endpoint."""
         global _current_user
-
         username = self.username_input.text().strip()
         password = self.password_input.text()
-
         try:
             body = json.dumps({"username": username, "password": password}).encode()
             connection = _connect()
@@ -115,50 +108,51 @@ def _check_login() -> bool:
 def _server_up() -> bool:
     """Ping the server, with a popup if it is not reachable."""
     try:
-        urllib.request.urlopen(f"{SERVER}/", timeout=2)
+        urllib.request.urlopen(f"{SERVER}/", timeout=30)
         return True
     except Exception:
-        QMessageBox.critical(None, "Error", "Server is not running")
+        QMessageBox.critical(None, "Error", "Server is not reachable")
         return False
 
 
-def _ask_asset_name(title: str) -> Optional[str]:
-    """Prompt the artist for an asset name. Returns None if cancelled."""
-    name, ok = QInputDialog.getText(None, title, "Asset name:")
-    name = name.strip()
-    if not ok or not name:
-        return None
-    return name
+def _ask(title: str, label: str) -> Optional[str]:
+    """Prompt for a line of text. Returns None if cancelled or empty."""
+    text, ok = QInputDialog.getText(None, title, label)
+    text = text.strip()
+    return text if (ok and text) else None
 
 
-def _multipart_upload(
-    filepath: str, source_tool: str = "Maya", ready: bool = False
-) -> tuple[int, dict]:
-    """Upload a .obj file to the server as multipart form data.
+def _load_usd_plugin() -> None:
+    """Make sure Maya's USD plugin is available."""
+    if not cmds.pluginInfo("mayaUsdPlugin", query=True, loaded=True):
+        cmds.loadPlugin("mayaUsdPlugin")
 
-    Built by hand because Maya's Python does not ship with requests.
-    """
+
+def _export_usd(path: str, nodes: list) -> None:
+    """Export the given nodes (or the whole scene) to a USD file."""
+    _load_usd_plugin()
+    if nodes:
+        cmds.select(nodes, replace=True)
+        cmds.file(path, force=True, exportSelected=True, type="USD Export")
+    else:
+        cmds.file(path, force=True, exportAll=True, type="USD Export")
+
+
+def _multipart_upload(filepath: str) -> tuple[int, dict]:
+    """Upload a USD file to the server as a new version."""
     filename = os.path.basename(filepath)
     boundary = "----MayaPipelineBoundary"
-
-    with open(filepath, "rb") as obj_file:
-        file_data = obj_file.read()
+    with open(filepath, "rb") as usd_file:
+        file_data = usd_file.read()
 
     body = (
-        (
-            f"--{boundary}\r\n"
-            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-            f"Content-Type: application/octet-stream\r\n\r\n"
-        ).encode()
-        + file_data
-        + f"\r\n--{boundary}--\r\n".encode()
-    )
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n"
+    ).encode() + file_data + f"\r\n--{boundary}--\r\n".encode()
 
     uploader = _current_user or "unknown"
-    url = (
-        f"/api/assets/upload?source_tool={source_tool}"
-        f"&ready={str(ready).lower()}&uploaded_by={uploader}"
-    )
+    url = f"/api/assets/upload?source_tool=Maya&uploaded_by={uploader}"
     connection = _connect()
     connection.request(
         "POST",
@@ -175,27 +169,23 @@ def _multipart_upload(
     return response.status, data
 
 
-def _upload_thumbnail(name: str, view: str, filepath: str) -> None:
-    """Upload one viewport screenshot to the server."""
+def _upload_thumbnail(name: str, view: str, version: int, filepath: str) -> None:
+    """Upload one viewport screenshot for a specific version."""
     boundary = "----ThumbBoundary"
     with open(filepath, "rb") as image_file:
         image_data = image_file.read()
 
     body = (
-        (
-            f"--{boundary}\r\n"
-            f'Content-Disposition: form-data; name="file"; '
-            f'filename="{os.path.basename(filepath)}"\r\n'
-            f"Content-Type: image/jpeg\r\n\r\n"
-        ).encode()
-        + image_data
-        + f"\r\n--{boundary}--\r\n".encode()
-    )
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; '
+        f'filename="{os.path.basename(filepath)}"\r\n'
+        f"Content-Type: image/jpeg\r\n\r\n"
+    ).encode() + image_data + f"\r\n--{boundary}--\r\n".encode()
 
     connection = _connect()
     connection.request(
         "POST",
-        f"/api/assets/{name}/thumbnail/{view}",
+        f"/api/assets/{name}/thumbnail/{view}?version={version}",
         body=body,
         headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
@@ -207,16 +197,18 @@ def _upload_thumbnail(name: str, view: str, filepath: str) -> None:
     print(f"{view} thumb {'ok' if response.status == 200 else 'failed'}")
 
 
-def _take_thumbnails(name: str, nodes: list[str]) -> None:
-    """Playblast front and top screenshots of the given nodes and upload them."""
-    temp_dir = tempfile.gettempdir()
+def _take_thumbnails(name: str, version: int, nodes: list) -> None:
+    """Playblast front and top screenshots of the nodes and upload them."""
+    if not nodes:
+        print("nothing to thumbnail, skipping")
+        return
 
+    temp_dir = tempfile.gettempdir()
     panel = None
     for visible_panel in cmds.getPanel(visiblePanels=True) or []:
         if cmds.getPanel(typeOf=visible_panel) == "modelPanel":
             panel = visible_panel
             break
-
     if not panel:
         print("no viewport, skipping thumbnails")
         return
@@ -228,96 +220,78 @@ def _take_thumbnails(name: str, nodes: list[str]) -> None:
         cmds.viewFit(fitFactor=0.9)
         cmds.refresh(force=True)
 
-        output_path = os.path.join(temp_dir, f"{name}_{view}.jpg")
+        out = os.path.join(temp_dir, f"{name}_{view}.jpg")
         cmds.playblast(
             startTime=cmds.currentTime(query=True),
             endTime=cmds.currentTime(query=True),
             format="image",
-            completeFilename=output_path,
+            completeFilename=out,
             compression="jpg",
             widthHeight=[512, 512],
             percent=100,
             viewer=False,
             forceOverwrite=True,
         )
-        _upload_thumbnail(name, view, output_path)
+        _upload_thumbnail(name, view, version, out)
 
     cmds.setFocus(panel)
     mel.eval(f"lookThru {panel} persp")
 
 
-def upload() -> None:
-    """Pick a .obj file, upload it, and capture thumbnails for it.
-
-    The file is imported temporarily so the thumbnails can be taken,
-    then the imported nodes are deleted again.
-    """
+def publish() -> None:
+    """Export the current selection as USD and publish it as a new version."""
     if not _server_up() or not _check_login():
         return
-    path = cmds.fileDialog2(fileFilter="OBJ Files (*.obj)", dialogStyle=2, fm=1)
-    if not path:
+    name = _ask("Publish Asset", "Asset name:")
+    if not name:
         return
-    path = path[0]
 
-    status, data = _multipart_upload(path)
+    nodes = cmds.ls(selection=True, long=True) or []
+    temp_path = os.path.join(tempfile.gettempdir(), f"{name}.usd")
+    try:
+        _export_usd(temp_path, nodes)
+    except Exception as exc:
+        QMessageBox.critical(None, "Export failed", str(exc))
+        return
+
+    status, data = _multipart_upload(temp_path)
     if status != 200:
         QMessageBox.critical(None, "Error", str(data))
         return
 
-    name = os.path.basename(path).replace(".obj", "")
-    nodes_before = set(cmds.ls(dag=True, long=True))
-    cmds.file(
-        path,
-        i=True,
-        type="OBJ",
-        ignoreVersion=True,
-        mergeNamespacesOnClash=True,
-        namespace=":",
-    )
-    new_nodes = list(set(cmds.ls(dag=True, long=True)) - nodes_before)
-
-    if new_nodes:
-        _take_thumbnails(name, new_nodes)
-        cmds.delete(new_nodes)
-    else:
-        print("nothing imported, skipping thumbnails")
-
+    version = data.get("version")
+    thumb_nodes = nodes or cmds.ls(geometry=True, long=True)
+    _take_thumbnails(name, version, thumb_nodes)
     cmds.select(clear=True)
-    QMessageBox.information(None, "Done", f"Uploaded: {os.path.basename(path)}")
+    QMessageBox.information(None, "Published", f"{name} published as v{version}")
 
 
-def get_ready() -> list[dict]:
-    """Show which assets are marked ready on the server."""
+def get_ready() -> list:
+    """Show which assets have an approved version ready to import."""
     if not _server_up() or not _check_login():
         return []
     assets = json.loads(urllib.request.urlopen(f"{SERVER}/api/assets/ready").read())
     if not assets:
         QMessageBox.information(None, "Pipeline", "No assets ready")
         return []
-    message = f"{len(assets)} asset(s) ready:\n\n" + "\n".join(
-        f"  - {asset['name']}" for asset in assets
+    lines = "\n".join(
+        f"  - {a['name']}  (v{a['approved_version']})" for a in assets
     )
-    QMessageBox.information(None, "Ready Assets", message)
+    QMessageBox.information(None, "Ready Assets", f"{len(assets)} ready:\n\n{lines}")
     return assets
 
 
-def import_asset(name: str) -> None:
-    """Download one asset from the server and import it into the scene."""
-    temp_path = os.path.join(tempfile.gettempdir(), f"{name}.obj")
-    urllib.request.urlretrieve(f"{SERVER}/api/assets/download/{name}", temp_path)
-    cmds.file(
-        temp_path,
-        i=True,
-        type="OBJ",
-        ignoreVersion=True,
-        mergeNamespacesOnClash=True,
-        namespace=":",
-    )
+def _import_usd(name: str, url: str) -> None:
+    """Download a USD file from the server and import it into the scene."""
+    _load_usd_plugin()
+    temp_path = os.path.join(tempfile.gettempdir(), f"{name}.usd")
+    urllib.request.urlretrieve(url, temp_path)
+    cmds.file(temp_path, i=True, type="USD Import", ignoreVersion=True)
     print(f"imported {name}")
 
 
 def import_all_ready() -> None:
-    """Import every ready asset into the current scene."""
+    """Import the approved version of every ready asset."""
     if not _server_up() or not _check_login():
         return
     assets = get_ready()
@@ -325,37 +299,68 @@ def import_all_ready() -> None:
         return
     for asset in assets:
         try:
-            import_asset(asset["name"])
+            _import_usd(asset["name"], f"{SERVER}/api/assets/download/{asset['name']}")
         except Exception as exc:
             print(f"failed to import {asset['name']}: {exc}")
     QMessageBox.information(None, "Done", f"Imported {len(assets)} asset(s)")
 
 
-def _set_ready_state(endpoint: str, title: str, done_message: str) -> None:
-    """Shared logic for marking/unmarking an asset as ready."""
+def import_version() -> None:
+    """Pick an asset and a specific version, and import that exact version."""
     if not _server_up() or not _check_login():
         return
-    asset_name = _ask_asset_name(title)
-    if not asset_name:
+    name = _ask("Import Version", "Asset name:")
+    if not name:
+        return
+    try:
+        info = json.loads(
+            urllib.request.urlopen(f"{SERVER}/api/assets/{name}/versions").read()
+        )
+    except Exception:
+        QMessageBox.critical(None, "Error", f"could not find {name}")
+        return
+
+    lines = "\n".join(
+        f"  v{v['version']} - by {v['uploaded_by']}" for v in info["versions"]
+    )
+    msg = (
+        f"{name}\nlatest: v{info['latest_version']}   "
+        f"approved: v{info['approved_version']}\n\n{lines}"
+    )
+    QMessageBox.information(None, "Version History", msg)
+
+    picked = _ask("Import Version", "Version number to import:")
+    if not picked:
+        return
+    _import_usd(name, f"{SERVER}/api/assets/download/{name}?version={picked}")
+    QMessageBox.information(None, "Done", f"Imported {name} v{picked}")
+
+
+def _set_approval(endpoint: str, title: str, done_message: str) -> None:
+    """Shared logic for approving / unapproving an asset (latest version)."""
+    if not _server_up() or not _check_login():
+        return
+    name = _ask(title, "Asset name:")
+    if not name:
         return
     connection = _connect()
-    connection.request("PATCH", f"/api/assets/{asset_name}/{endpoint}")
+    connection.request("PATCH", f"/api/assets/{name}/{endpoint}")
     response = connection.getresponse()
     connection.close()
     if response.status == 200:
-        QMessageBox.information(None, "Done", done_message.format(asset_name))
+        QMessageBox.information(None, "Done", done_message.format(name))
     else:
-        QMessageBox.critical(None, "Error", f"could not find {asset_name}")
+        QMessageBox.critical(None, "Error", f"could not find {name}")
 
 
-def mark_ready() -> None:
-    """Mark an asset on the server as ready."""
-    _set_ready_state("ready", "Mark Ready", "{} marked as ready")
+def approve() -> None:
+    """Approve the latest version of an asset for others to use."""
+    _set_approval("approve", "Approve", "{} approved (latest version)")
 
 
-def unmark_ready() -> None:
-    """Take an asset on the server out of the ready pool."""
-    _set_ready_state("unready", "Unmark Ready", "{} unmarked")
+def unapprove() -> None:
+    """Take an asset out of the approved pool."""
+    _set_approval("unapprove", "Unapprove", "{} unapproved")
 
 
 def setup_shelf() -> None:
@@ -368,49 +373,28 @@ def setup_shelf() -> None:
     pipeline_dir = os.path.dirname(os.path.abspath(__file__)).replace("\\", "/")
     base = f"import sys\nsys.path.append(r'{pipeline_dir}')\nimport pipeline\n"
 
-    cmds.shelfButton(
-        label="UPL",
-        annotation="Upload .obj to pipeline",
-        imageOverlayLabel="UPL",
-        image="commandButton.png",
-        parent=shelf,
-        command=base + "pipeline.upload()",
-    )
+    cmds.shelfButton(label="PUB", annotation="Publish selection as a USD version",
+                     imageOverlayLabel="PUB", image="commandButton.png",
+                     parent=shelf, command=base + "pipeline.publish()")
 
-    cmds.shelfButton(
-        label="IMP",
-        annotation="Import all ready assets",
-        imageOverlayLabel="IMP",
-        image="commandButton.png",
-        parent=shelf,
-        command=base + "pipeline.import_all_ready()",
-    )
+    cmds.shelfButton(label="IMP", annotation="Import all approved assets",
+                     imageOverlayLabel="IMP", image="commandButton.png",
+                     parent=shelf, command=base + "pipeline.import_all_ready()")
 
-    cmds.shelfButton(
-        label="CHK",
-        annotation="Check whats ready on server",
-        imageOverlayLabel="CHK",
-        image="commandButton.png",
-        parent=shelf,
-        command=base + "pipeline.get_ready()",
-    )
+    cmds.shelfButton(label="CHK", annotation="Check what's approved on the server",
+                     imageOverlayLabel="CHK", image="commandButton.png",
+                     parent=shelf, command=base + "pipeline.get_ready()")
 
-    cmds.shelfButton(
-        label="RDY",
-        annotation="Mark an asset as ready",
-        imageOverlayLabel="RDY",
-        image="commandButton.png",
-        parent=shelf,
-        command=base + "pipeline.mark_ready()",
-    )
+    cmds.shelfButton(label="VER", annotation="Version history / import a version",
+                     imageOverlayLabel="VER", image="commandButton.png",
+                     parent=shelf, command=base + "pipeline.import_version()")
 
-    cmds.shelfButton(
-        label="URDY",
-        annotation="Unmark an asset as ready",
-        imageOverlayLabel="URDY",
-        image="commandButton.png",
-        parent=shelf,
-        command=base + "pipeline.unmark_ready()",
-    )
+    cmds.shelfButton(label="OK", annotation="Approve the latest version",
+                     imageOverlayLabel="OK", image="commandButton.png",
+                     parent=shelf, command=base + "pipeline.approve()")
+
+    cmds.shelfButton(label="NO", annotation="Unapprove an asset",
+                     imageOverlayLabel="NO", image="commandButton.png",
+                     parent=shelf, command=base + "pipeline.unapprove()")
 
     print("shelf ready")
