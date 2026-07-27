@@ -33,7 +33,9 @@ from PySide6.QtWidgets import (
 #   "http://localhost:8000"             - running on your own machine
 #   "https://abc123.trycloudflare.com"  - a Cloudflare tunnel
 #   "https://my-pipeline.onrender.com"  - a cloud deployment
-SERVER = os.environ.get("PIPELINE_SERVER", "http://localhost:8000").rstrip("/")
+SERVER = os.environ.get(
+    "PIPELINE_SERVER", "https://usd-asset-pipeline.onrender.com"
+).rstrip("/")
 
 _logged_in = False
 _current_user: Optional[str] = None

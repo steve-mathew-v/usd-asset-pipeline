@@ -41,9 +41,11 @@ ROOT_USER = os.getenv("ROOT_USER")
 ROOT_PASS = os.getenv("ROOT_PASS")
 
 ATLAS_URL = f"https://cloud.mongodb.com/api/atlas/v1.0/groups/{ATLAS_PROJECT_ID}"
-# Address the GUI talks to. Defaults to the local server; override with
-# PIPELINE_SERVER to point the Assets tab at a remote/cloud server.
-SERVER_URL = os.environ.get("PIPELINE_SERVER", "http://localhost:8000").rstrip("/")
+# Address the GUI talks to. Defaults to the deployed cloud server; override
+# with PIPELINE_SERVER (e.g. http://localhost:8000) to point at a local one.
+SERVER_URL = os.environ.get(
+    "PIPELINE_SERVER", "https://usd-asset-pipeline.onrender.com"
+).rstrip("/")
 
 server_process = None
 
