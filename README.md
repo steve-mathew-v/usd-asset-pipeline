@@ -94,7 +94,7 @@ The server can be run in a container so it works the same on any machine without
 docker compose up --build
 ```
 
-This builds the image, starts the server on `http://localhost:8000`, and keeps the `uploads/` and `thumbnails/` folders on the host so files survive restarts. Only the server is containerised — the GUI and Maya tools run on the artist's own machine.
+This builds the image and starts the server on `http://localhost:8000`. Uploaded files and thumbnails are stored in MongoDB (via GridFS), so the server keeps nothing on its own disk and can run on an ephemeral cloud host without losing assets. Only the server is containerised — the GUI and Maya tools run on the artist's own machine.
 
 ## Letting other people connect
 
@@ -148,6 +148,10 @@ uv run startup.py
 
 When you upload a .obj from Maya, the pipeline automatically takes a front and top viewport screenshot and uploads them to the server. These show up in the GUI's **Assets** tab.
 
+## Where files are stored
+
+Both the .obj files and their thumbnails are stored **inside MongoDB using GridFS**, not on the server's local disk. This keeps the server stateless, so it can be deployed to a cloud host (where the disk is wiped on every restart) without losing any assets. The trade-off is the database's storage limit (512 MB on the Atlas free tier), which suits modest assets.
+
 ## Project structure
 
 ```
@@ -166,6 +170,6 @@ obj-pipeline/
 │   ├── install.py     # One-time Maya installer
 │   └── pipeline.py    # Maya shelf and pipeline tools
 ├── tests/             # pytest suite (runs offline, no Atlas needed)
-├── uploads/           # Stored .obj files (created at runtime)
-└── thumbnails/        # Auto-generated asset thumbnails (created at runtime)
+├── storage.py         # File storage in MongoDB GridFS
+└── database.py        # MongoDB connection (files + records both live here)
 ```

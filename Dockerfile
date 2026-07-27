@@ -8,7 +8,7 @@ COPY requirements-server.txt .
 RUN pip install --no-cache-dir -r requirements-server.txt
 
 # only the server code needs to go in the image (not the GUI / Maya client)
-COPY main.py routes.py database.py models.py ./
+COPY main.py routes.py database.py models.py storage.py ./
 
 # MONGO_URI and DB_NAME come from the environment at runtime (see docker-compose.yml)
 EXPOSE 8000

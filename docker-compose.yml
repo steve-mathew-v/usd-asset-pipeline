@@ -7,8 +7,5 @@ services:
     # reads MONGO_URI, DB_NAME, ROOT_USER, ROOT_PASS from the .env file
     env_file:
       - .env
-    # keep uploaded files and thumbnails on the host so they survive restarts
-    volumes:
-      - ./uploads:/app/uploads
-      - ./thumbnails:/app/thumbnails
+    # files are stored in MongoDB (GridFS), so no host folders are needed
     restart: unless-stopped

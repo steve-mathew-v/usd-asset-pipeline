@@ -2,23 +2,23 @@
 
 import os
 
-import aiofiles
 from dotenv import load_dotenv
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
-from database import db
+import database
+import storage
 from models import ObjAsset
 
 load_dotenv()
 
 router = APIRouter()
-assets_collection = db["assets"]
 
-UPLOAD_DIR = "uploads"
-THUMB_DIR = "thumbnails"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(THUMB_DIR, exist_ok=True)
+
+def _assets():
+    """Return the assets collection, resolved per-call so the DB client
+    binds to the request's event loop (avoids cross-loop errors)."""
+    return database.get_db()["assets"]
 
 
 @router.post("/auth/login")
@@ -52,7 +52,7 @@ async def login(credentials: dict) -> dict:
 @router.post("/assets")
 async def add_asset(asset: ObjAsset) -> dict:
     """Register an asset entry directly (without a file upload)."""
-    result = await assets_collection.insert_one(asset.dict())
+    result = await _assets().insert_one(asset.dict())
     return {"id": str(result.inserted_id)}
 
 
@@ -70,16 +70,13 @@ async def upload_asset(
     if not file.filename.endswith(".obj"):
         raise HTTPException(status_code=400, detail="only .obj files allowed")
 
-    save_path = os.path.join(UPLOAD_DIR, file.filename)
-    async with aiofiles.open(save_path, "wb") as out_file:
-        await out_file.write(await file.read())
+    await storage.save_file(file.filename, await file.read())
 
     name = file.filename.replace(".obj", "")
-    await assets_collection.delete_one({"name": name})
-    await assets_collection.insert_one(
+    await _assets().delete_one({"name": name})
+    await _assets().insert_one(
         {
             "name": name,
-            "file_path": save_path,
             "source_tool": source_tool,
             "tags": [],
             "ready": ready,
@@ -87,25 +84,29 @@ async def upload_asset(
         }
     )
 
-    return {"message": f"{file.filename} uploaded", "path": save_path}
+    return {"message": f"{file.filename} uploaded"}
 
 
 @router.get("/assets/download/{name}")
-async def download_asset(name: str) -> FileResponse:
+async def download_asset(name: str) -> Response:
     """Send the stored .obj file for an asset back to the client."""
-    asset = await assets_collection.find_one({"name": name})
+    asset = await _assets().find_one({"name": name})
     if not asset:
         raise HTTPException(status_code=404, detail="not found")
-    path = asset["file_path"]
-    if not os.path.exists(path):
+    data = await storage.read_file(f"{name}.obj")
+    if data is None:
         raise HTTPException(status_code=404, detail="file missing on server")
-    return FileResponse(path, filename=f"{name}.obj")
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{name}.obj"'},
+    )
 
 
 @router.get("/assets")
 async def get_assets() -> list[dict]:
     """List every asset in the database."""
-    assets = await assets_collection.find().to_list(100)
+    assets = await _assets().find().to_list(100)
     for asset in assets:
         asset["_id"] = str(asset["_id"])
     return assets
@@ -114,7 +115,7 @@ async def get_assets() -> list[dict]:
 @router.get("/assets/ready")
 async def get_ready_assets() -> list[dict]:
     """List only the assets that are marked as ready."""
-    assets = await assets_collection.find({"ready": True}).to_list(100)
+    assets = await _assets().find({"ready": True}).to_list(100)
     for asset in assets:
         asset["_id"] = str(asset["_id"])
     return assets
@@ -123,7 +124,7 @@ async def get_ready_assets() -> list[dict]:
 @router.patch("/assets/{name}/ready")
 async def mark_ready(name: str) -> dict:
     """Mark an asset as ready for other artists to import."""
-    result = await assets_collection.update_one(
+    result = await _assets().update_one(
         {"name": name}, {"$set": {"ready": True}}
     )
     if result.matched_count == 0:
@@ -134,7 +135,7 @@ async def mark_ready(name: str) -> dict:
 @router.patch("/assets/{name}/unready")
 async def unmark_ready(name: str) -> dict:
     """Take an asset back out of the ready pool."""
-    result = await assets_collection.update_one(
+    result = await _assets().update_one(
         {"name": name}, {"$set": {"ready": False}}
     )
     if result.matched_count == 0:
@@ -147,35 +148,27 @@ async def upload_thumbnail(name: str, view: str, file: UploadFile = File(...)) -
     """Store a front or top viewport screenshot for an asset."""
     if view not in ("front", "top"):
         raise HTTPException(status_code=400, detail="view must be front or top")
-    save_path = os.path.join(THUMB_DIR, f"{name}_{view}.jpg")
-    async with aiofiles.open(save_path, "wb") as out_file:
-        await out_file.write(await file.read())
-    await assets_collection.update_one(
-        {"name": name}, {"$set": {f"thumb_{view}": save_path}}
-    )
+    await storage.save_file(f"{name}_{view}.jpg", await file.read())
     return {"message": f"{view} thumbnail saved for {name}"}
 
 
 @router.get("/assets/{name}/thumbnail/{view}")
-async def get_thumbnail(name: str, view: str) -> FileResponse:
+async def get_thumbnail(name: str, view: str) -> Response:
     """Send a stored thumbnail image back to the client."""
-    path = os.path.join(THUMB_DIR, f"{name}_{view}.jpg")
-    if not os.path.exists(path):
+    data = await storage.read_file(f"{name}_{view}.jpg")
+    if data is None:
         raise HTTPException(status_code=404, detail="not found")
-    return FileResponse(path)
+    return Response(content=data, media_type="image/jpeg")
 
 
 @router.delete("/assets/{name}")
 async def delete_asset(name: str) -> dict:
     """Remove an asset's file, thumbnails and database entry."""
-    asset = await assets_collection.find_one({"name": name})
+    asset = await _assets().find_one({"name": name})
     if not asset:
         raise HTTPException(status_code=404, detail="not found")
-    if os.path.exists(asset.get("file_path", "")):
-        os.remove(asset["file_path"])
+    await storage.delete_file(f"{name}.obj")
     for view in ("front", "top"):
-        thumb_path = os.path.join(THUMB_DIR, f"{name}_{view}.jpg")
-        if os.path.exists(thumb_path):
-            os.remove(thumb_path)
-    await assets_collection.delete_one({"name": name})
+        await storage.delete_file(f"{name}_{view}.jpg")
+    await _assets().delete_one({"name": name})
     return {"message": f"{name} deleted"}

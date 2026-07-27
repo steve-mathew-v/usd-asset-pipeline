@@ -73,19 +73,51 @@ class FakeCollection:
         self.documents = [d for d in self.documents if not self._matches(d, query)]
 
 
+class FakeDb:
+    """Stand-in for the Motor database: any collection name returns the fake."""
+
+    def __init__(self, collection: FakeCollection) -> None:
+        self._collection = collection
+
+    def __getitem__(self, name: str) -> FakeCollection:
+        return self._collection
+
+
 @pytest.fixture
 def fake_collection(monkeypatch) -> FakeCollection:
-    """Replace the real Atlas collection with the in-memory fake."""
-    import routes
+    """Replace the real Atlas database with an in-memory fake."""
+    import database
 
     collection = FakeCollection()
-    monkeypatch.setattr(routes, "assets_collection", collection)
+    monkeypatch.setattr(database, "get_db", lambda: FakeDb(collection))
     return collection
 
 
 @pytest.fixture
-def client(fake_collection) -> TestClient:
-    """A test client wired up to the fake collection."""
+def fake_storage(monkeypatch) -> dict:
+    """Replace GridFS file storage with an in-memory dict."""
+    import storage
+
+    files: dict[str, bytes] = {}
+
+    async def save_file(key: str, data: bytes) -> None:
+        files[key] = data
+
+    async def read_file(key: str) -> bytes | None:
+        return files.get(key)
+
+    async def delete_file(key: str) -> None:
+        files.pop(key, None)
+
+    monkeypatch.setattr(storage, "save_file", save_file)
+    monkeypatch.setattr(storage, "read_file", read_file)
+    monkeypatch.setattr(storage, "delete_file", delete_file)
+    return files
+
+
+@pytest.fixture
+def client(fake_collection, fake_storage) -> TestClient:
+    """A test client wired up to the fake collection and fake storage."""
     from main import app
 
     return TestClient(app)
