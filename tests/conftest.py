@@ -43,7 +43,14 @@ class FakeCollection:
         self.documents: list[dict] = []
 
     def _matches(self, document: dict, query: dict) -> bool:
-        return all(document.get(key) == value for key, value in query.items())
+        for key, cond in query.items():
+            value = document.get(key)
+            if isinstance(cond, dict) and "$ne" in cond:
+                if value == cond["$ne"]:
+                    return False
+            elif value != cond:
+                return False
+        return True
 
     async def insert_one(self, document: dict) -> FakeInsertResult:
         document = dict(document)
@@ -65,7 +72,11 @@ class FakeCollection:
     async def update_one(self, query: dict, update: dict) -> FakeUpdateResult:
         for document in self.documents:
             if self._matches(document, query):
-                document.update(update["$set"])
+                if "$set" in update:
+                    document.update(update["$set"])
+                if "$push" in update:
+                    for key, value in update["$push"].items():
+                        document.setdefault(key, []).append(value)
                 return FakeUpdateResult(1)
         return FakeUpdateResult(0)
 

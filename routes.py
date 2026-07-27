@@ -1,6 +1,12 @@
-"""API endpoints for uploading, downloading and managing .obj assets."""
+"""API endpoints for uploading, downloading and versioning USD assets.
+
+Each asset keeps a full history of versions. Uploading the same asset again
+adds a new version rather than overwriting; a specific version is then
+"approved" for other artists to consume (latest, or a pinned version).
+"""
 
 import os
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -8,11 +14,13 @@ from fastapi.responses import Response
 
 import database
 import storage
-from models import ObjAsset
 
 load_dotenv()
 
 router = APIRouter()
+
+# USD file formats we accept (crate, ascii, generic, zipped)
+USD_EXTS = (".usd", ".usda", ".usdc", ".usdz")
 
 
 def _assets():
@@ -21,13 +29,18 @@ def _assets():
     return database.get_db()["assets"]
 
 
+def _split_ext(filename: str) -> tuple[str, str]:
+    """Split a USD filename into (name, extension), or raise if not USD."""
+    lower = filename.lower()
+    for ext in USD_EXTS:
+        if lower.endswith(ext):
+            return filename[: -len(ext)], filename[-len(ext):]
+    raise HTTPException(status_code=400, detail="only USD files allowed")
+
+
 @router.post("/auth/login")
 async def login(credentials: dict) -> dict:
-    """Check a username/password against the root account or Atlas users.
-
-    Root credentials come from the .env file. Anything else is checked by
-    trying an actual MongoDB connection with those credentials.
-    """
+    """Check a username/password against the root account or Atlas users."""
     username = credentials.get("username")
     password = credentials.get("password")
 
@@ -49,63 +62,55 @@ async def login(credentials: dict) -> dict:
         raise HTTPException(status_code=401, detail="invalid credentials")
 
 
-@router.post("/assets")
-async def add_asset(asset: ObjAsset) -> dict:
-    """Register an asset entry directly (without a file upload)."""
-    result = await _assets().insert_one(asset.dict())
-    return {"id": str(result.inserted_id)}
-
-
 @router.post("/assets/upload")
 async def upload_asset(
     file: UploadFile = File(...),
     source_tool: str = "Maya",
-    ready: bool = False,
     uploaded_by: str = "unknown",
 ) -> dict:
-    """Save an uploaded .obj file and record it in the database.
+    """Upload a USD file as a new version of an asset.
 
-    Re-uploading an asset with the same name replaces the old entry.
+    The first upload of a name creates version 1; each later upload of the
+    same name adds the next version. Nothing is overwritten.
     """
-    if not file.filename.endswith(".obj"):
-        raise HTTPException(status_code=400, detail="only .obj files allowed")
+    name, ext = _split_ext(file.filename)
 
-    await storage.save_file(file.filename, await file.read())
-
-    name = file.filename.replace(".obj", "")
-    await _assets().delete_one({"name": name})
-    await _assets().insert_one(
-        {
-            "name": name,
-            "source_tool": source_tool,
-            "tags": [],
-            "ready": ready,
-            "uploaded_by": uploaded_by,
-        }
-    )
-
-    return {"message": f"{file.filename} uploaded"}
-
-
-@router.get("/assets/download/{name}")
-async def download_asset(name: str) -> Response:
-    """Send the stored .obj file for an asset back to the client."""
     asset = await _assets().find_one({"name": name})
-    if not asset:
-        raise HTTPException(status_code=404, detail="not found")
-    data = await storage.read_file(f"{name}.obj")
-    if data is None:
-        raise HTTPException(status_code=404, detail="file missing on server")
-    return Response(
-        content=data,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{name}.obj"'},
-    )
+    version = (asset["latest_version"] + 1) if asset else 1
+
+    await storage.save_file(f"{name}/v{version}{ext}", await file.read())
+
+    entry = {
+        "version": version,
+        "ext": ext,
+        "uploaded_by": uploaded_by,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if asset:
+        await _assets().update_one(
+            {"name": name},
+            {
+                "$push": {"versions": entry},
+                "$set": {"latest_version": version, "source_tool": source_tool},
+            },
+        )
+    else:
+        await _assets().insert_one(
+            {
+                "name": name,
+                "source_tool": source_tool,
+                "latest_version": version,
+                "approved_version": None,
+                "versions": [entry],
+            }
+        )
+
+    return {"message": f"{file.filename} uploaded as v{version}", "version": version}
 
 
 @router.get("/assets")
 async def get_assets() -> list[dict]:
-    """List every asset in the database."""
+    """List every asset with its version history."""
     assets = await _assets().find().to_list(100)
     for asset in assets:
         asset["_id"] = str(asset["_id"])
@@ -114,48 +119,101 @@ async def get_assets() -> list[dict]:
 
 @router.get("/assets/ready")
 async def get_ready_assets() -> list[dict]:
-    """List only the assets that are marked as ready."""
-    assets = await _assets().find({"ready": True}).to_list(100)
+    """List assets that have an approved version ready to consume."""
+    assets = await _assets().find({"approved_version": {"$ne": None}}).to_list(100)
     for asset in assets:
         asset["_id"] = str(asset["_id"])
     return assets
 
 
-@router.patch("/assets/{name}/ready")
-async def mark_ready(name: str) -> dict:
-    """Mark an asset as ready for other artists to import."""
+@router.get("/assets/{name}/versions")
+async def get_versions(name: str) -> dict:
+    """Return the full version history of one asset."""
+    asset = await _assets().find_one({"name": name})
+    if not asset:
+        raise HTTPException(status_code=404, detail="not found")
+    return {
+        "name": name,
+        "latest_version": asset["latest_version"],
+        "approved_version": asset.get("approved_version"),
+        "versions": asset["versions"],
+    }
+
+
+@router.get("/assets/download/{name}")
+async def download_asset(name: str, version: int | None = None) -> Response:
+    """Download a USD asset: the approved version by default, or a pinned one."""
+    asset = await _assets().find_one({"name": name})
+    if not asset:
+        raise HTTPException(status_code=404, detail="not found")
+
+    wanted = version if version is not None else asset.get("approved_version")
+    if wanted is None:
+        raise HTTPException(status_code=404, detail="no approved version")
+
+    entry = next((e for e in asset["versions"] if e["version"] == wanted), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="version not found")
+
+    data = await storage.read_file(f"{name}/v{wanted}{entry['ext']}")
+    if data is None:
+        raise HTTPException(status_code=404, detail="file missing on server")
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{name}{entry["ext"]}"'},
+    )
+
+
+@router.patch("/assets/{name}/approve")
+async def approve_asset(name: str, version: int | None = None) -> dict:
+    """Approve a version for others to consume (defaults to the latest)."""
+    asset = await _assets().find_one({"name": name})
+    if not asset:
+        raise HTTPException(status_code=404, detail="not found")
+
+    wanted = version if version is not None else asset["latest_version"]
+    if not any(e["version"] == wanted for e in asset["versions"]):
+        raise HTTPException(status_code=404, detail="version not found")
+
+    await _assets().update_one(
+        {"name": name}, {"$set": {"approved_version": wanted}}
+    )
+    return {"message": f"{name} v{wanted} approved"}
+
+
+@router.patch("/assets/{name}/unapprove")
+async def unapprove_asset(name: str) -> dict:
+    """Take an asset out of the approved pool."""
     result = await _assets().update_one(
-        {"name": name}, {"$set": {"ready": True}}
+        {"name": name}, {"$set": {"approved_version": None}}
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="not found")
-    return {"message": f"{name} is ready"}
-
-
-@router.patch("/assets/{name}/unready")
-async def unmark_ready(name: str) -> dict:
-    """Take an asset back out of the ready pool."""
-    result = await _assets().update_one(
-        {"name": name}, {"$set": {"ready": False}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="not found")
-    return {"message": f"{name} is unready"}
+    return {"message": f"{name} unapproved"}
 
 
 @router.post("/assets/{name}/thumbnail/{view}")
-async def upload_thumbnail(name: str, view: str, file: UploadFile = File(...)) -> dict:
-    """Store a front or top viewport screenshot for an asset."""
+async def upload_thumbnail(
+    name: str, view: str, version: int, file: UploadFile = File(...)
+) -> dict:
+    """Store a front or top screenshot for a specific version of an asset."""
     if view not in ("front", "top"):
         raise HTTPException(status_code=400, detail="view must be front or top")
-    await storage.save_file(f"{name}_{view}.jpg", await file.read())
-    return {"message": f"{view} thumbnail saved for {name}"}
+    await storage.save_file(f"{name}/v{version}_{view}.jpg", await file.read())
+    return {"message": f"{view} thumbnail saved for {name} v{version}"}
 
 
 @router.get("/assets/{name}/thumbnail/{view}")
-async def get_thumbnail(name: str, view: str) -> Response:
-    """Send a stored thumbnail image back to the client."""
-    data = await storage.read_file(f"{name}_{view}.jpg")
+async def get_thumbnail(name: str, view: str, version: int | None = None) -> Response:
+    """Send a thumbnail: for the approved version by default, or a pinned one."""
+    asset = await _assets().find_one({"name": name})
+    if not asset:
+        raise HTTPException(status_code=404, detail="not found")
+    wanted = version
+    if wanted is None:
+        wanted = asset.get("approved_version") or asset["latest_version"]
+    data = await storage.read_file(f"{name}/v{wanted}_{view}.jpg")
     if data is None:
         raise HTTPException(status_code=404, detail="not found")
     return Response(content=data, media_type="image/jpeg")
@@ -163,12 +221,14 @@ async def get_thumbnail(name: str, view: str) -> Response:
 
 @router.delete("/assets/{name}")
 async def delete_asset(name: str) -> dict:
-    """Remove an asset's file, thumbnails and database entry."""
+    """Remove an asset entirely: every version, its thumbnails and the record."""
     asset = await _assets().find_one({"name": name})
     if not asset:
         raise HTTPException(status_code=404, detail="not found")
-    await storage.delete_file(f"{name}.obj")
-    for view in ("front", "top"):
-        await storage.delete_file(f"{name}_{view}.jpg")
+    for entry in asset["versions"]:
+        version = entry["version"]
+        await storage.delete_file(f"{name}/v{version}{entry['ext']}")
+        for view in ("front", "top"):
+            await storage.delete_file(f"{name}/v{version}_{view}.jpg")
     await _assets().delete_one({"name": name})
     return {"message": f"{name} deleted"}
