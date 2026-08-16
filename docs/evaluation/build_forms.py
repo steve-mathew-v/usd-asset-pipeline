@@ -258,6 +258,98 @@ SAMPLES = [
                         "beginners.",
         },
     },
+    {
+        "name": "SAMPLE — M. Haas (illustrative)",
+        "pid": "P3 (SAMPLE)",
+        "bg": {
+            "tools": ["Houdini", "Maya"],
+            "experience": "Advanced (3+ yrs)",
+            "usd": "Regularly",
+            "sharing": ["Shared network folder", "Version control"],
+            "problems": "Rarely",
+            "prior_tool": "Yes",
+        },
+        "sus": [5, 2, 5, 1, 5, 1, 4, 2, 5, 1],
+        "post": {
+            "compare": "Much better",
+            "confidence": "Much more",
+            "versioning": "Very useful",
+            "like": "The versioning behaves like a real studio pipeline — "
+                    "approving a specific version is exactly right.",
+            "confusing": "Little for me; as a TD I'd also want a scripting API.",
+            "missing": "Batch publish and an API token for automation.",
+            "woulduse": "Yes, especially for small teams without ShotGrid.",
+        },
+    },
+    {
+        "name": "SAMPLE — L. Nguyen (illustrative)",
+        "pid": "P4 (SAMPLE)",
+        "bg": {
+            "tools": ["Maya"],
+            "experience": "Intermediate (1-3 yrs)",
+            "usd": "A little",
+            "sharing": ["Cloud drive", "Messaging / email"],
+            "problems": "Sometimes",
+            "prior_tool": "No",
+        },
+        "sus": [4, 2, 4, 2, 4, 2, 4, 2, 4, 3],
+        "post": {
+            "compare": "Better",
+            "confidence": "More",
+            "versioning": "Useful",
+            "like": "Not having to message people the latest file every time.",
+            "confusing": "Wasn't always sure my publish had uploaded until I "
+                         "checked.",
+            "missing": "A progress indicator while a big asset uploads.",
+            "woulduse": "Yes, for group projects.",
+        },
+    },
+    {
+        "name": "SAMPLE — R. Silva (illustrative)",
+        "pid": "P5 (SAMPLE)",
+        "bg": {
+            "tools": ["Maya", "Blender"],
+            "experience": "Advanced (3+ yrs)",
+            "usd": "A little",
+            "sharing": ["Cloud drive", "Shared network folder"],
+            "problems": "Sometimes",
+            "prior_tool": "No",
+        },
+        "sus": [5, 2, 4, 1, 4, 2, 5, 2, 4, 2],
+        "post": {
+            "compare": "Much better",
+            "confidence": "Much more",
+            "versioning": "Very useful",
+            "like": "Auto thumbnails and the approve step — it's clear which is "
+                    "the blessed version.",
+            "confusing": "The approve-versus-publish split, briefly.",
+            "missing": "Search/filter and tags once there are many assets.",
+            "woulduse": "Yes.",
+        },
+    },
+    {
+        "name": "SAMPLE — T. Abed (illustrative)",
+        "pid": "P6 (SAMPLE)",
+        "bg": {
+            "tools": ["Blender", "Maya"],
+            "experience": "Beginner (< 1 yr)",
+            "usd": "Never",
+            "sharing": ["Cloud drive"],
+            "problems": "Often",
+            "prior_tool": "No",
+        },
+        "sus": [3, 3, 3, 3, 3, 4, 3, 3, 2, 4],
+        "post": {
+            "compare": "About the same",
+            "confidence": "Same",
+            "versioning": "Slightly",
+            "like": "The idea of keeping every version is good.",
+            "confusing": "I got lost between publish, approve and import, and "
+                         "wasn't sure what had succeeded.",
+            "missing": "Much clearer step-by-step feedback and labels.",
+            "woulduse": "Maybe later, once it's more beginner-friendly.",
+        },
+    },
 ]
 
 
